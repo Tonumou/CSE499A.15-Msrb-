@@ -1,0 +1,88 @@
+# =========================================================================
+# DATA & LOCAL ARTIFACTS (CRITICAL: Prevents pushing heavy imagery to Git)
+# =========================================================================
+# Ignore the raw unzipped heavy xView2 dataset
+data/xView2 Challenge Dataset - train and test/
+
+# Ignore your locally generated standardized images and label copies
+# data/processed_images/
+# data/processed_labels/
+
+# # Ignore the local state tracker (prevents git merge conflicts within the team)
+# data/processed_tracker.txt
+
+# # Ignore final local training dataset artifacts (keep jsonl out of git if it gets large)
+# dataset/*.jsonl
+
+
+# =========================================================================
+# PYTHON & MACHINE LEARNING CLEANUP
+# =========================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# C extensions
+*.pyd
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Inline documentation / Jupyter Notebook structures
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+
+# =========================================================================
+# ENVIRONMENTS & VIRTUALIZATION
+# =========================================================================
+# Local virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Conda environment files (if exported locally to the folder)
+.conda/
+
+
+# =========================================================================
+# IDEs, EDITORS, & OS SPECIFICS (Windows / VS Code / Cursor)
+# =========================================================================
+# Windows specific system files
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# VS Code / Cursor workspace configurations
+.vscode/
+!.vscode/extensions.json
+.history/
+*.code-workspace
+
+# Crash logs
+pip-log.txt
+pip-delete-this-directory.txt
