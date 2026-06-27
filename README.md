@@ -7,7 +7,7 @@
 > **CSE499A/EEE499A/ETE499A - Senior Design 1, Section 15 Project Group 5**
 > **Team:** Abdullah Al Noman, Tamanna Akter Mou, Aryan Sami, Ridita Afrin Riya, Abrar Mohammed Tanzim Alam
 
-## 🚨 Project Overview
+## Project Overview
 
 During the first 72 hours of a natural disaster—the "golden rescue window"—coordinators must make high-stakes deployment decisions. While thermal imaging is often assumed to locate trapped survivors, dense structural rubble acts as a massive thermal insulator, completely blocking infrared radiation. Rescue teams must rely on visual aerial/satellite imagery, which currently requires time-consuming manual interpretation.
 
@@ -19,7 +19,7 @@ Instead of traditional computer vision tasks (like generating segmentation masks
 **Input:** Aerial/Satellite Image + `"Analyze this aerial image and identify priority zones for search and rescue operations."`
 **Output:** > *"Zone A (NE quadrant): pancake collapse, 3-4 floors. Extract at column intersections. Zone B (centre): lean-over, void likely on south face. Avoid SW full collapse, secondary risk high."* ---
 
-## 🛠️ Technical Architecture & Pipeline
+## Technical Architecture & Pipeline
 
 ### 1. Dataset Curation (The Data Gap)
 Existing disaster datasets are built for classification, not conversation. We curate a multi-source instruction-following dataset from established repositories:
@@ -42,7 +42,7 @@ We benchmark our fine-tuned Qwen2-VL against closed SOTA models (GPT-4o Vision, 
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 disaster-vlm-project/
