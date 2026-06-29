@@ -4,7 +4,7 @@
 **Document Type:** Agent Delegation Spec  
 **Pipeline Scope:** Stage 1 (Image Standardizer) → Stage 2 (Ground Truth Generation) → Stage 3 (QA Validator) → Stage 4 (Sanitizer & Instruction Augmentation) → Stage 5 (Train/Val/Test Split)  
 **Downstream Consumer:** Qwen2-VL-7B, Qwen2-VL-2B, LLaVA-1.5-7B, InternVL2-8B, PaliGemma-3B fine-tuning via QLoRA  
-**Non-Negotiable Contract:** Every accepted sample must conform to `{"image": str, "instruction": str, "response": str}` — no exceptions, no additional keys, no nested objects.
+**Non-Negotiable Contract:** Every accepted sample must conform to `{"image": str, "instruction": str, "response": str, "meta": dict}`. The `meta` block is an optional nested dictionary for dataset pipeline tracking; no other nested objects are permitted.
 
 **Source Dataset:** xView2 Challenge Dataset (xBD) — 2,799 labelled post-disaster train images + 1,866 **unlabelled** test images (test set is unusable for this pipeline).
 
@@ -39,7 +39,7 @@ CSE499AB_project/
 │   ├── image_standardizer.py    # Stage 1 script
 │   ├── generate_ground_truth.py # Stage 2 script
 │   ├── dataset_validator.py     # Stage 3 script (customtkinter GUI)
-│   ├── sanitize_dataset.py      # Stage 4 script (TODO)
+│   ├── sanitize_dataset.py      # Stage 4 script
 │   └── dataset_stats.py         # Post-pipeline stats & visualization
 │
 ├── requirements.txt
@@ -132,13 +132,8 @@ Maintain an authoritative, objective, and operational tone.
 
 - **Set API temperature to 0.3 or lower.** Higher temperatures produce creative, varied language — which is the opposite of what you want for a schema-constrained rescue report. Consistency in structure is more important than variety in vocabulary at generation time. Instruction diversity is handled separately by the sanitizer (Stage 4).
 
-> [!IMPORTANT]
-> **Implementation gap:** `generate_ground_truth.py` does **not** currently set `temperature` in the `GenerateContentConfig`. This must be added before the next generation batch.
-
-- **Set `max_output_tokens` to 600.** This enforces an upper bound on response length. Responses longer than ~500 tokens are verbose beyond what a rescue commander can act on, and they risk exceeding the context window of smaller models (Qwen2-VL-2B, PaliGemma-3B) during fine-tuning. Responses shorter than 120 tokens are too thin to train meaningful rescue-language generation — log and reject these automatically.
-
-> [!IMPORTANT]
-> **Implementation gap:** `generate_ground_truth.py` does **not** currently set `max_output_tokens`. This must be added before the next generation batch.
+> [!NOTE]
+> **Implementation Status:** `generate_ground_truth.py` correctly sets `temperature=0.3` and `max_output_tokens=600`.
 
 ### 2.2 Multimodal Payload Requirements
 
@@ -164,8 +159,8 @@ Quality gates for this pipeline are divided between **Stage 2** (basic structura
 - **Minimum word count:** Response body must contain ≥ 120 words. Reject if below.
 - **No first-person language:** Reject responses containing `"I "`, `"I'm "`, `"I cannot"`, `"As an AI"`.
 
-> [!WARNING]
-> **Current state:** `generate_ground_truth.py` has **zero** pre-QA checks — every raw API response is written unconditionally. The sanitizer (Stage 4) currently compensates for this, but adding basic checks to Stage 2 will reduce dirty samples reaching the QA reviewer.
+> [!NOTE]
+> **Current state:** `generate_ground_truth.py` implements these pre-QA checks natively via the `passes_qa_gates()` function.
 
 **Stage 4 enforces (post-QA, on `verified_dataset.jsonl`):**
 - Placeholder regex: `\[.*?\]` — catches `[insert coordinates]`, `[TBD]`, etc.
@@ -176,7 +171,7 @@ Quality gates for this pipeline are divided between **Stage 2** (basic structura
 ### 2.4 Disaster-Type-Specific Prompt Tuning
 
 > [!NOTE]
-> **Status: Not yet implemented.** The current `generate_ground_truth.py` uses an identical prompt for all disaster types. The per-type emphasis strings below should be injected into the system prompt when the relevant disaster type is detected from the JSON metadata. This is a priority enhancement for the next generation batch.
+> **Status: Implemented.** `generate_ground_truth.py` uses `DISASTER_PROMPTS` mapped by detected disaster type, injected into `prompt_text` alongside `AUGMENTATION_PROMPTS`.
 
 | Disaster Type | Prompt Emphasis Addition |
 |---|---|
@@ -285,7 +280,9 @@ This stage transforms the human-approved intermediate dataset into a training-re
 
 ### 4.2 Instruction Diversification
 
-The raw dataset uses a single instruction string for all samples. To prevent the model from overfitting to one prompt phrasing, the sanitizer replaces the instruction with a **round-robin rotation** across these variants:
+The raw dataset (legacy data) used a single instruction string for all samples. To prevent the model from overfitting to one prompt phrasing, the sanitizer identifies legacy rows (via the hardcoded string) and replaces the instruction with a **round-robin rotation** across these variants.
+
+*Note: Newly generated Smart Augmentation rows inherently have diverse, perspective-specific instructions and are bypassed by the round-robin replacer.*
 
 ```python
 INSTRUCTION_VARIANTS = [
@@ -329,7 +326,7 @@ The train/val/test split for VLM fine-tuning is performed on the **final JSONL f
 
 - **Split must be stratified by both disaster type AND disaster event (geographic event), not just by type.** If Hurricane Michael has 50 samples, the split must include Hurricane Michael images in train, val, and test — not 50 train, 0 val, 0 test. Similarly, the same geographic tile or building cluster must never appear in both train and test splits. Use event-level grouping before random splitting.
 - **Final split ratio: 80% train / 10% val / 10% test.** The smaller val/test percentages reflect the constrained dataset size (~220 current samples). Never evaluate the final model on the test set during development. The val set drives early stopping. The test set is touched exactly once — for the final benchmark numbers that go in the paper.
-- **Split script status:** Not yet implemented. This is Stage 5 of the pipeline.
+- **Split script status:** Implemented. Run `dataset_split.py` to create this split.
 
 ### Response Length Distribution
 

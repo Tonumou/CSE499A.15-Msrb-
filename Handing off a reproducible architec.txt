@@ -1,0 +1,79 @@
+*Handing off a reproducible architecture to a data team. It documents exactly what I built today, why I built it, and exactly how they need to alter it to process the other datasets on your list.
+
+Synthetic VLM Dataset Generation Pipeline
+
+1. Executive Summary & Architecture
+Open-source Vision Language Models (like Qwen2-VL) require training data in a conversational format (Instruction + Image + Text Response). However, open-source disaster datasets (xBD, FloodNet, AIDER) only provide raw classification data (e.g., pixel masks, polygon coordinates, or simple labels like "major damage").
+This pipeline automates the translation of raw classification math into highly professional, human-readable tactical rescue reports using 2D stratified balancing and a multi-perspective Smart Augmentation strategy.
+
+The 5-Stage Pipeline:
+Standardization: Shrink heavy satellite PNGs into VRAM-safe JPEGs.
+Generation: Pass the JPEG and the numerical metadata to a Frontier Multimodal API (Gemini) to write the synthetic rescue report.
+Verification: A human-in-the-loop GUI to review, edit, and approve the AI's text before it enters the final training pool.
+Sanitization: Clean the approved data, inject diverse instruction prompts, and shuffle it.
+Split: Stratify the final data into train/val/test splits, grouped by disaster event.
+
+2. Environment & Prerequisites
+Before running the pipeline, ensure the local environment is configured:
+Python Packages: pip install pillow python-dotenv google-genai customtkinter
+API Keys: Create a .env file in the PROJECT_ROOT folder. Because free-tier APIs have strict Requests Per Day (RPD) limits, the pipeline supports automatic key rotation.
+# .env file
+GEMINI_API_KEY_1="your_first_key_here"
+GEMINI_API_KEY_2="your_second_key_here"
+
+Directory Architecture: Ensure the project matches this exact structure:
+PROJECT_ROOT/
+├── data/
+│   ├── raw_dataset/             # Downloaded dataset (e.g., xBD, FloodNet)
+│   ├── processed_images/        # Output of Script 1
+│   ├── processed_labels/        # Output of Script 1
+├── dataset/
+│   ├── train_dataset.jsonl      # Output of Script 2 (Raw AI Generated)
+│   ├── verified_dataset.jsonl   # Output of Script 3 (Human Approved)
+│   └── final_training_dataset.jsonl  # Output of Script 4 (Sanitized & Shuffled)
+└── support/                     # Python scripts live here
+
+3. Stage 1: The Image Standardizer (image_standardizer.py)
+Purpose: VLMs will crash Kaggle T4 GPUs with Out-Of-Memory (OOM) errors if fed raw 4K satellite PNGs. This script standardizes the inputs.
+Action: 
+* Scans the raw dataset.
+* Resizes images so their longest edge is a maximum of 1280px (maintaining aspect ratio).
+* Converts heavy .png files to lightweight .jpg files.
+* Copies the matching .json label file so they remain paired.
+* Uses a processed_tracker.txt file so the script can be paused and safely resumed without duplicating work.
+
+4. Stage 2: Multimodal Ground Truth Generation (generate_ground_truth.py)
+Purpose: The core engine. It reads the standardized data and prompts the Gemini API to write the rescue report using a 2D Stratified Quota system (Disaster Type × Max Severity).
+How it works:
+Metadata Parsing: A custom function (parse_xbd_json) opens the .json label and extracts the hard numbers.
+Smart Augmentation: To balance the dataset, rare combinations (e.g. volcano + destroyed) are augmented using up to 4 distinct prompt perspectives (Structural, Triage, Logistics, Environmental). This allows us to extract multiple distinct training rows from a single rare image.
+Multimodal Payload: The script passes the JPEG image, the parsed text string, and disaster-specific emphasis to Gemini.
+Fault Tolerance: Key Rotation, Model Waterfall (3.5-flash -> 2.5-flash), and 429 Throttling.
+Output: Appends a strict 4-key dictionary (image, instruction, response, meta) to train_dataset.jsonl.
+
+5. Stage 3: The QA Validator GUI (dataset_validator.py)
+Purpose: AI models hallucinate. To prevent garbage data from ruining the fine-tuning process, a human must spot-check the generated outputs.
+How it works:
+A standalone desktop app built in tkinter/customtkinter.
+Displays the satellite image on the left and the generated text on the right.
+The Workflow: The QA engineer reads the text.
+If perfect: Press Accept (Right Arrow).
+If slightly wrong: Edit the text directly in the box, then press Accept.
+If completely hallucinated: Press Reject (Left Arrow) to skip it entirely.
+Output: Accepted files are saved to verified_dataset.jsonl.
+
+6. Stage 4: The Sanitizer (sanitize_dataset.py)
+Purpose: Prepare the QA-approved data for training.
+Action: 
+* Replaces legacy hardcoded instructions with diverse, round-robin variants to prevent prompt-overfitting.
+* Cleans up placeholder text and first-person AI language.
+* Randomly shuffles the data (seed 42) to prevent batch bias during fine-tuning.
+Output: Saves the final pristine artifact to final_training_dataset.jsonl.
+
+7. Stage 5: The Splitter (dataset_split.py)
+Purpose: Creates the 80/10/10 train/val/test splits.
+Action: Stratifies strictly by Disaster Event (ensuring geographic tiles don't leak between train and test sets).
+
+8. ⚠️ Replication Guide: Adapting for Other Datasets
+The pipeline above is currently configured for the xBD (xView2) dataset. When teammates process FloodNet, AIDER, or RescueNet, they only need to change the Data Parsing logic in Script 1 and Script 2.
+The Golden Rule for the Team: No matter what dataset you ingest, Script 2 MUST output the exact same JSONL format (image, instruction, response, and optionally meta), and Script 3 MUST be used to verify it. Do not alter the final output contract.

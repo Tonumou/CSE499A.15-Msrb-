@@ -16,8 +16,10 @@ PROJECT_ROOT = os.path.dirname(SUPPORT_DIR)
 
 DEFAULT_INPUT_JSONL = os.path.join(PROJECT_ROOT, "dataset", "verified_dataset.jsonl")
 DEFAULT_OUTPUT_JSONL = os.path.join(PROJECT_ROOT, "dataset", "final_training_dataset.jsonl")
+PROCESSED_LABELS_DIR = os.path.join(PROJECT_ROOT, "data", "processed_labels")
 
 OLD_GENERIC = "Analyze this aerial view and identify priority zones for search and rescue operations."
+SEVERITY_ORDER = ['destroyed', 'major-damage', 'minor-damage', 'no-damage', 'un-classified']
 
 INSTRUCTION_VARIANTS = [
     "Analyze this aerial view and identify priority zones for search and rescue operations.",
@@ -30,6 +32,37 @@ INSTRUCTION_VARIANTS = [
 
 PLACEHOLDER_PATTERN = re.compile(r'\[.*?\]')
 FIRST_PERSON_PATTERNS = ["i ", "i'm ", "i cannot", "as an ai", "i apologize", "i'm sorry", "unfortunately i"]
+
+def backfill_legacy_meta(row):
+    """Backfills the meta block for legacy rows by reading the xBD JSON label."""
+    if 'meta' in row:
+        return row
+        
+    base_name = os.path.basename(row['image']).replace('.jpg', '')
+    json_path = os.path.join(PROCESSED_LABELS_DIR, f"{base_name}.json")
+    
+    if os.path.exists(json_path):
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        dtype = data.get('metadata', {}).get('disaster_type', 'unknown')
+        features = data.get('features', {}).get('xy', [])
+        
+        present_sevs = {f.get('properties', {}).get('subtype', 'un-classified') for f in features}
+        max_sev = 'un-classified'
+        for level in SEVERITY_ORDER:
+            if level in present_sevs:
+                max_sev = level
+                break
+                
+        row['meta'] = {
+            'disaster_type': dtype,
+            'max_severity': max_sev,
+            'perspective': 'default',
+            'multiplier_applied': False,
+            'model': 'gemini-3.5-flash'  # Assumed for legacy data
+        }
+    return row
 
 def sanitize_and_augment(input_path: str, output_path: str):
     random.seed(42)  # Reproducibility
@@ -81,8 +114,11 @@ def sanitize_and_augment(input_path: str, output_path: str):
                 continue
 
             # Instruction diversity (conditional for legacy generic instructions)
-            if row.get('instruction') == OLD_GENERIC:
+            if row.get('instruction', '').strip() == OLD_GENERIC:
                 row['instruction'] = INSTRUCTION_VARIANTS[len(clean_data) % len(INSTRUCTION_VARIANTS)]
+
+            # Backfill metadata for legacy rows
+            row = backfill_legacy_meta(row)
 
             # Disaster type tracking
             disaster_type = row.get('meta', {}).get('disaster_type') or os.path.basename(row['image']).split('_')[0]

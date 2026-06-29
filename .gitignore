@@ -5,7 +5,7 @@
 data/xView2 Challenge Dataset - train and test/
 
 # Ignore your locally generated standardized images and label copies
-# data/processed_images/
+data/processed_images/
 # data/processed_labels/
 
 # # Ignore the local state tracker (prevents git merge conflicts within the team)

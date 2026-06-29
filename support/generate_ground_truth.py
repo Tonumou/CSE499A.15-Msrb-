@@ -6,6 +6,7 @@ import subprocess
 import sys
 import random
 import math
+import re
 from collections import defaultdict
 
 try:
@@ -46,7 +47,7 @@ MODELS = [
     'gemini-3.5-flash',
     'gemini-2.5-flash'
 ]
-TARGET_SAMPLE_COUNT = 60  # Daily limit to protect 20 RPD caps across models
+TARGET_SAMPLE_COUNT = 350  # Global target size for the dataset
 
 # --- SYSTEM PROMPT & AUGMENTATION ---
 SYSTEM_INSTRUCTION = """
@@ -63,7 +64,7 @@ You must strictly output your assessment following this schema without deviation
 ### 3. Hazard Avoidance & Logistics Constraints
 [Highlight secondary tactical risks visible in the image or noted in the data.]
 
-Constraint: Do not include introductory or concluding pleasantries. Maintain an authoritative, objective, and operational tone.
+Constraint: Do not include introductory or concluding pleasantries. Maintain an authoritative, objective, and operational tone. Keep your response highly concise (maximum 300 words).
 """
 
 AUGMENTATION_PROMPTS = {
@@ -88,9 +89,26 @@ AUGMENTATION_PROMPTS = {
         "expected survivor concentration and medical urgency."
     ),
 }
-PERSPECTIVE_KEYS = list(AUGMENTATION_PROMPTS.keys())
+PERSPECTIVE_KEYS = ["structural", "triage", "logistics", "environmental"]
 
-SEVERITY_ORDER = ['destroyed', 'major-damage', 'minor-damage', 'no-damage']
+DISASTER_PROMPTS = {
+    'earthquake': "Focus on collapse mode (pancake, lean-over, V-space), void identification, and column/stairwell proximity.",
+    'flood':      "Focus on water ingress depth estimation, roof refuge identification, and waterborne access routes.",
+    'hurricane':  "Focus on water ingress depth estimation, roof refuge identification, and waterborne access routes.",
+    'volcano':    "Focus on flow path direction, isolation risk, and secondary hazard timeline (re-flow, gas).",
+    'wildfire':   "Focus on burn perimeter, structure integrity after thermal stress, and ember-cast secondary ignition zones.",
+    'fire':       "Focus on burn perimeter, structure integrity after thermal stress, and ember-cast secondary ignition zones.",
+    'tsunami':    "Focus on wave direction indicators, debris field extent, and elevated-structure refuge viability.",
+}
+
+def get_disaster_emphasis(dtype: str) -> str:
+    dtype = dtype.lower()
+    for k, v in DISASTER_PROMPTS.items():
+        if k in dtype:
+            return f" {v}"
+    return ""
+
+SEVERITY_ORDER = ['destroyed', 'major-damage', 'minor-damage', 'no-damage', 'un-classified']
 
 def get_max_severity(features: list) -> str:
     present = {f['properties'].get('subtype', 'un-classified') for f in features}
@@ -146,16 +164,19 @@ def parse_xbd_json(json_path):
     return summary, disaster_type, max_sev
 
 def passes_qa_gates(response_text: str) -> bool:
-    headers = ["### 1.", "### 2.", "### 3."]
-    if not all(h in response_text for h in headers):
-        print("    -> QA Failed: Missing schema headers")
+    # Relaxed header check to accommodate slight Markdown formatting variations from Gemini
+    has_1 = any(h in response_text for h in ["### 1.", "## 1.", "# 1.", "1. Priority"])
+    has_2 = any(h in response_text for h in ["### 2.", "## 2.", "# 2.", "2. Structural"])
+    has_3 = any(h in response_text for h in ["### 3.", "## 3.", "# 3.", "3. Hazard"])
+    if not (has_1 and has_2 and has_3):
+        print(f"    -> QA Failed: Missing schema headers (1:{has_1}, 2:{has_2}, 3:{has_3})")
+        print(f"       [Full Output Begin]\n{response_text}\n       [Full Output End]")
         return False
     if len(response_text.split()) < 120:
         print("    -> QA Failed: Under 120 words")
         return False
-    first_person = ["i ", "i'm ", "i cannot", "as an ai", "i apologize", "i'm sorry"]
-    lower_text = response_text.lower()
-    if any(p in lower_text for p in first_person):
+    first_person_pattern = re.compile(r"\b(i|i'm|i cannot|as an ai|i apologize|i'm sorry)\b", re.IGNORECASE)
+    if first_person_pattern.search(response_text):
         print("    -> QA Failed: First-person or apology language detected")
         return False
     return True
@@ -169,7 +190,7 @@ def load_existing_progress():
                 if line.strip():
                     try:
                         row = json.loads(line)
-                        perspective = row.get("meta", {}).get("perspective", "structural")
+                        perspective = row.get("meta", {}).get("perspective", "default")
                         dedup_key = f"{row['image']}::{perspective}"
                         processed_images.add(dedup_key)
                     except Exception:
@@ -269,8 +290,18 @@ def generate_dataset():
                 if dedup_key in processed_history:
                     continue
                     
-                instruction = AUGMENTATION_PROMPTS[perspective_key]
-                prompt_text = f"{instruction}\n\nMetadata Annotations:\n{metadata_summary}"
+                base_instruction = AUGMENTATION_PROMPTS[perspective_key]
+                disaster_emphasis = get_disaster_emphasis(dtype)
+                
+                # Disaster emphasis guides Gemini's generation quality,
+                # but is NOT saved as the fine-tuning instruction target.
+                prompt_text = (
+                    f"{base_instruction}{disaster_emphasis}\n\n"
+                    f"Metadata Annotations:\n{metadata_summary}"
+                )
+                
+                # Clean perspective-only instruction for JSONL
+                instruction = base_instruction
                 
                 max_retries = (len(api_keys) * len(MODELS)) + 3
                 retries = 0
@@ -281,17 +312,35 @@ def generate_dataset():
                         img = Image.open(image_path)
                         response = client.models.generate_content(
                             model=current_model,
-                            contents=[prompt_text, img],
+                            contents=[img, prompt_text],
                             config=types.GenerateContentConfig(
                                 system_instruction=SYSTEM_INSTRUCTION,
                                 temperature=0.3,
-                                max_output_tokens=600
+                                safety_settings=[
+                                    types.SafetySetting(
+                                        category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                                    ),
+                                    types.SafetySetting(
+                                        category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                                    ),
+                                    types.SafetySetting(
+                                        category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                                    ),
+                                    types.SafetySetting(
+                                        category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                                        threshold=types.HarmBlockThreshold.BLOCK_NONE,
+                                    ),
+                                ]
                             )
                         )
                         ground_truth = response.text.strip()
+                        finish_reason = response.candidates[0].finish_reason if response.candidates else "UNKNOWN"
                         
                         if not passes_qa_gates(ground_truth):
-                            print(f"[{base_name} | {perspective_key}] Output failed QA gates. Retrying...")
+                            print(f"[{base_name} | {perspective_key}] Output failed QA gates. (Finish Reason: {finish_reason}). Retrying...")
                             retries += 1
                             time.sleep(2)
                             continue
