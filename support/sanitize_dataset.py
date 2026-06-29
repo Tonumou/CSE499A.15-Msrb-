@@ -14,7 +14,7 @@ if sys.stdout.encoding != 'utf-8':
 SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SUPPORT_DIR)
 
-DEFAULT_INPUT_JSONL = os.path.join(PROJECT_ROOT, "dataset", "verified_dataset.jsonl")
+DEFAULT_INPUT_JSONL = os.path.join(PROJECT_ROOT, "dataset", "train_dataset.jsonl")
 DEFAULT_OUTPUT_JSONL = os.path.join(PROJECT_ROOT, "dataset", "final_training_dataset.jsonl")
 PROCESSED_LABELS_DIR = os.path.join(PROJECT_ROOT, "data", "processed_labels")
 
@@ -31,7 +31,7 @@ INSTRUCTION_VARIANTS = [
 ]
 
 PLACEHOLDER_PATTERN = re.compile(r'\[.*?\]')
-FIRST_PERSON_PATTERNS = ["i ", "i'm ", "i cannot", "as an ai", "i apologize", "i'm sorry", "unfortunately i"]
+FIRST_PERSON_PATTERN = re.compile(r"\b(i)(?!\.e\b)\b|\b(i'm|i cannot|as an ai|i apologize|i'm sorry|unfortunately i)\b", re.IGNORECASE)
 
 def backfill_legacy_meta(row):
     """Backfills the meta block for legacy rows by reading the xBD JSON label."""
@@ -106,9 +106,7 @@ def sanitize_and_augment(input_path: str, output_path: str):
                 dirty_count += 1
                 continue
                 
-            # Guard: first-person and apology language
-            lower_response = row['response'].lower()
-            if any(p in lower_response for p in FIRST_PERSON_PATTERNS):
+            if FIRST_PERSON_PATTERN.search(row['response']):
                 print(f"🧹 Line {line_num}: First-person/apology language found — removed: {row['image']}")
                 dirty_count += 1
                 continue
