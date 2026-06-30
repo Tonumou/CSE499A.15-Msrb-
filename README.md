@@ -27,6 +27,9 @@ Existing disaster datasets are built for classification, not conversation. We cu
 * **FloodNet:** UAV imagery, flood assessment 
 * **AIDER & RescueNet:** Aerial drone imagery, multi-disaster & rescue-oriented 
 
+![Dataset Distribution and Exploratory Data Analysis](output.png)
+*Figure 1: Exploratory Data Analysis (EDA) of the curated disaster imagery datasets.*
+
 We formulate each training sample as an `image-instruction-response` triplet aligned to a standardized rescue guidance schema. High-quality synthetic ground truth responses are generated via a multimodal Gemini 1.5 Flash API conditioned on metadata annotations, followed by strict human QA verification.
 
 ### 2. Model & Fine-Tuning Strategy
